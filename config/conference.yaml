@@ -1,0 +1,7 @@
+proceedings:
+  include_states:
+    - confirmed
+  include_submission_types:
+    - Постерный доклад
+    - Гласный доклад
+    - Пленарный доклад
