@@ -1,0 +1,48 @@
+\pagestyle{submission}
+\thispagestyle{submission}
+\phantomsection\label{ {{- submission.label -}} }
+
+{% if submission_group_heading %}
+\noindent{\sffamily\fontsize{10.5}{13}\selectfont\bfseries\color{ProceedingsRed}
+{{ submission_group_heading.toc_heading|tex }}\par}
+\vspace{3mm}
+{% endif %}
+
+{\raggedright\sffamily\fontsize{14.5}{17.8}\selectfont\bfseries\color{ProceedingsDark}
+ {{ submission.title|tex }}\par}
+\vspace{4mm}
+
+{\sffamily\fontsize{10.5}{13}\selectfont
+{% for author in submission.authors -%}
+{{ author.display_name|tex }}{% if author.affiliation_index is not none %}\textsuperscript{ {{- author.affiliation_index -}} }{% endif %}{% if not loop.last %}, {% endif %}
+{%- endfor %}\par}
+
+{% if submission.affiliations %}
+\vspace{2.5mm}
+{\fontsize{9.3}{11.5}\selectfont
+{% for affiliation in submission.affiliations -%}
+{% if submission.affiliations|length > 1 %}\textsuperscript{ {{- loop.index -}} } {% endif %}{{ affiliation|tex }}{% if not loop.last %}; {% endif %}
+{%- endfor %}\par}
+{% endif %}
+
+{% if submission.email %}
+\vspace{2mm}
+{\fontsize{9.2}{11}\selectfont\sffamily
+\href{mailto:\detokenize{ {{- submission.email|mailto -}} }}{ {{- submission.email|tex -}} }\par}
+{% endif %}
+
+{% if submission.keywords %}
+\vspace{3.5mm}
+\noindent{\fontsize{10}{12.5}\selectfont\textbf{Ключевые слова:}
+{% for keyword in submission.keywords %}{{ keyword|tex }}{% if not loop.last %}, {% endif %}{% endfor %}\par}
+{% endif %}
+
+{% if submission.abstract %}
+\vspace{4mm}
+{\fontsize{10.5}{13.6}\selectfont
+\setlength{\parskip}{.55em}
+\justifying
+{{ submission.abstract|tex_paragraphs }}\par}
+{% endif %}
+
+\clearpage

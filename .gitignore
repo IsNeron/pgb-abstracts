@@ -1,8 +1,6 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
-.pytest_cache/
-.pytest-tmp/
 build/
 dist/
 wheels/
@@ -18,5 +16,5 @@ wheels/
 !.env.template
 
 # Generated conference data
-data/raw/
+data/
 build/

@@ -7,8 +7,30 @@ from typing import Any
 from .models import Author, Section, Source, Submission, SubmissionType
 
 COAUTHOR_QUESTION_IDENTIFIER = "CDHXWQFZ"
-NO_COAUTHORS = {"-", "—", "нет"}
-SUSPICIOUS_INITIALS = re.compile(r"(?:^|\s)[A-ZА-ЯЁ],[A-ZА-ЯЁ]\.", re.IGNORECASE)
+MISSING_VALUES = {"", "-", "–", "—"}
+NO_COAUTHORS = {*MISSING_VALUES, "нет"}
+PERSON_IN_AFFILIATION_PATTERN = re.compile(
+    r"\b[А-ЯЁ][а-яё-]+\s+[А-ЯЁ]\.?\s*[А-ЯЁ]\.(?:\d+)?"
+)
+SHORT_NAME_PATTERN = re.compile(
+    r"^(?P<surname>[^\W\d_]+(?:-[^\W\d_]+)*)\s+"
+    r"(?P<first>[^\W\d_])\.\s*(?P<patronymic>[^\W\d_])\.?$",
+    re.UNICODE,
+)
+INDEXED_AFFILIATION_PATTERN = re.compile(r"^\s*(\d+)\s*(.+)$")
+SURNAME_INITIALS_PATTERN = re.compile(
+    r"^[^\W\d_]+(?:-[^\W\d_]+)*\s+[^\W\d_]\.\s*[^\W\d_]\.?$",
+    re.UNICODE,
+)
+INITIALS_SURNAME_PATTERN = re.compile(
+    r"^(?:[^\W\d_]\.\s*){1,2}[^\W\d_]+(?:-[^\W\d_]+)*$",
+    re.UNICODE,
+)
+INITIALS_FIRST_CANONICAL_PATTERN = re.compile(
+    r"^(?P<first>[^\W\d_])\.\s*(?P<patronymic>[^\W\d_])\.\s*"
+    r"(?P<surname>[^\W\d_]+(?:-[^\W\d_]+)*)$",
+    re.UNICODE,
+)
 
 
 def normalize_submissions(
@@ -19,7 +41,7 @@ def normalize_submissions(
 ) -> list[Submission]:
     states = set(include_states)
     submission_types = {name.casefold() for name in include_submission_types}
-    submissions = [
+    return [
         normalize_submission(raw, speaker_emails)
         for raw in raw_submissions
         if str(raw.get("state", "")) in states
@@ -28,7 +50,6 @@ def normalize_submissions(
             or _raw_submission_type_name(raw).casefold() in submission_types
         )
     ]
-    return sorted(submissions, key=_sort_key)
 
 
 def _raw_submission_type_name(raw: Mapping[str, Any]) -> str:
@@ -58,11 +79,14 @@ def normalize_submission(
     authors = _speaker_authors(raw.get("speakers"), speaker_emails or {})
     raw_coauthors, question_identifier = _coauthor_answer(raw.get("answers"))
     if _is_plenary_affiliation(submission_type, authors, raw_coauthors):
-        authors[0].affiliation = _clean_text(raw_coauthors or "")
+        authors[0].affiliation = _clean_missing(raw_coauthors or "")
         parsing_warnings: list[str] = []
     else:
         coauthors, parsing_warnings = parse_coauthors(raw_coauthors)
         authors.extend(coauthors)
+    authors, duplicate_warnings = _deduplicate_authors(authors)
+    parsing_warnings.extend(duplicate_warnings)
+    abstract = _localized(raw.get("abstract"))
     return Submission(
         code=code,
         state=_text(raw.get("state")),
@@ -71,7 +95,7 @@ def normalize_submission(
         submission_type=submission_type,
         authors=authors,
         keywords=parse_keywords(_localized(raw.get("description"))),
-        abstract=_localized(raw.get("abstract")),
+        abstract="" if _is_missing(abstract) else abstract,
         source=Source(
             submission_code=code,
             coauthor_answer=raw_coauthors,
@@ -100,9 +124,12 @@ def _is_plenary_affiliation(
 def parse_coauthors(value: str | None) -> tuple[list[Author], list[str]]:
     if value is None or not value.strip() or value.strip().casefold() in NO_COAUTHORS:
         return [], []
+    indexed = _parse_indexed_coauthors(value)
+    if indexed is not None:
+        return indexed
     authors: list[Author] = []
     warnings: list[str] = []
-    raw_items = value.split(";")
+    raw_items = value.replace("；", ";").split(";")
     for number, raw_item in enumerate(raw_items, start=1):
         item = raw_item.strip()
         if not item:
@@ -111,26 +138,71 @@ def parse_coauthors(value: str | None) -> tuple[list[Author], list[str]]:
                 continue
             warnings.append(f"coauthor item {number} is empty")
             continue
-        if SUSPICIOUS_INITIALS.search(item):
-            warnings.append(
-                f"coauthor item {number} has suspicious name punctuation and cannot be "
-                f"parsed reliably: {item}"
-            )
-            continue
         name, separator, affiliation = item.partition(",")
         name = name.strip()
-        affiliation = affiliation.strip()
+        affiliation = _clean_missing(affiliation)
         if not separator or not name or not affiliation:
             warnings.append(f"coauthor item {number} cannot be parsed reliably: {item}")
+            continue
+        if _affiliation_contains_person_name(affiliation):
+            warnings.append(
+                f"coauthor item {number} affiliation may contain additional person names: "
+                f"{affiliation}"
+            )
             continue
         authors.append(Author(name=name, affiliation=affiliation, role="coauthor"))
     return authors, warnings
 
 
+def _parse_indexed_coauthors(value: str) -> tuple[list[Author], list[str]] | None:
+    lines = [line.strip() for line in _clean_text(value).split("\n") if line.strip()]
+    if len(lines) < 2:
+        return None
+    affiliations: dict[str, str] = {}
+    for line in lines[1:]:
+        match = INDEXED_AFFILIATION_PATTERN.fullmatch(line)
+        if not match:
+            return None
+        affiliations[match.group(1)] = match.group(2).strip()
+    if not affiliations:
+        return None
+
+    parsed: list[tuple[str, str | None]] = []
+    for token in (part.strip() for part in lines[0].split(",")):
+        match = re.fullmatch(r"(.+?)(\d+)?", token)
+        if not match:
+            return None
+        name = match.group(1).strip()
+        index = match.group(2)
+        if not (
+            SURNAME_INITIALS_PATTERN.fullmatch(name)
+            or INITIALS_SURNAME_PATTERN.fullmatch(name)
+        ):
+            return None
+        parsed.append((name, index))
+    if not parsed or not any(index for _, index in parsed):
+        return None
+
+    authors: list[Author] = []
+    warnings: list[str] = []
+    for number, (name, index) in enumerate(parsed, start=1):
+        affiliation = affiliations.get(index or "", "")
+        if not affiliation:
+            warnings.append(
+                f"coauthor item {number} has no affiliation for index {index or 'none'}: {name}"
+            )
+        authors.append(Author(name=name, affiliation=affiliation, role="coauthor"))
+    return authors, warnings
+
+
 def parse_keywords(value: str | None) -> list[str]:
-    if not value:
+    if value is None or _is_missing(value):
         return []
-    return [keyword.strip() for keyword in value.split(",") if keyword.strip()]
+    return [
+        keyword.strip()
+        for keyword in value.split(",")
+        if keyword.strip() and not _is_missing(keyword)
+    ]
 
 
 def _speaker_authors(value: Any, speaker_emails: Mapping[str, str]) -> list[Author]:
@@ -143,7 +215,7 @@ def _speaker_authors(value: Any, speaker_emails: Mapping[str, str]) -> list[Auth
         authors.append(
             Author(
                 name=_text(speaker.get("name")),
-                affiliation=_localized(speaker.get("biography")),
+                affiliation=_clean_missing(_localized(speaker.get("biography"))),
                 role="speaker",
                 email=(
                     _text(speaker.get("email"))
@@ -198,15 +270,63 @@ def _clean_text(value: str) -> str:
     return "\n".join(line.rstrip() for line in normalized.split("\n")).strip()
 
 
+def _clean_missing(value: str) -> str:
+    cleaned = _clean_text(value)
+    return "" if _is_missing(cleaned) else cleaned
+
+
+def _is_missing(value: str) -> bool:
+    return value.strip().casefold() in MISSING_VALUES
+
+
+def _affiliation_contains_person_name(value: str) -> bool:
+    normalized = " ".join(value.split())
+    for match in PERSON_IN_AFFILIATION_PATTERN.finditer(normalized):
+        prefix = normalized[: match.start()]
+        if re.search(r"(?:\bим\.?|\bимени)\s+$", prefix, flags=re.IGNORECASE):
+            continue
+        return True
+    return False
+
+
+def _deduplicate_authors(authors: list[Author]) -> tuple[list[Author], list[str]]:
+    unique: list[Author] = []
+    warnings: list[str] = []
+    seen: set[str] = set()
+    for author in authors:
+        key = _normalized_author_key(author.name)
+        if key in seen:
+            warnings.append(f"duplicate author record removed: {author.name}")
+            continue
+        seen.add(key)
+        unique.append(author)
+    return unique, warnings
+
+
+def _normalized_author_key(value: str) -> str:
+    name = " ".join(value.split())
+    parts = name.split()
+    if len(parts) == 3 and all(_is_name_word(part) for part in parts):
+        name = f"{parts[0]} {parts[1][0]}.{parts[2][0]}."
+    else:
+        initials_first = INITIALS_FIRST_CANONICAL_PATTERN.fullmatch(name)
+        short = SHORT_NAME_PATTERN.fullmatch(name)
+        if initials_first:
+            name = (
+                f"{initials_first.group('surname')} "
+                f"{initials_first.group('first')}.{initials_first.group('patronymic')}."
+            )
+        elif short:
+            name = (
+                f"{short.group('surname')} "
+                f"{short.group('first')}.{short.group('patronymic')}."
+            )
+    return name.casefold()
+
+
+def _is_name_word(value: str) -> bool:
+    return all(part.isalpha() and len(part) > 1 for part in value.split("-"))
+
+
 def _numeric(value: Any) -> int | float | None:
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
-
-
-def _sort_key(submission: Submission) -> tuple[bool, float, str, str]:
-    position = submission.section.position
-    return (
-        position is None,
-        float(position) if position is not None else 0.0,
-        submission.section.name.casefold(),
-        submission.title.casefold(),
-    )

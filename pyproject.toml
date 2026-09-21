@@ -9,6 +9,7 @@ description = "Reproducible Pretalx ingestion and validation for the PGB proceed
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "Jinja2>=3.1,<4",
     "python-dotenv>=1.1,<2",
     "PyYAML>=6.0.2,<7",
 ]
@@ -18,16 +19,11 @@ esoil-proceedings = "esoil_proceedings.cli:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3,<10",
     "ruff>=0.11,<1",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/esoil_proceedings"]
-
-[tool.pytest.ini_options]
-addopts = "-q --basetemp=.pytest-tmp"
-testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100

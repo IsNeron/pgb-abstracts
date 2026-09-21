@@ -1,0 +1,100 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[a4paper,top=43mm,bottom=18mm,left=18mm,right=18mm,headheight=33mm,headsep=5mm]{geometry}
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{russian}
+\directlua{
+  luaotfload.add_fallback("proceedingsseriffallback", {
+    "FandolSong:mode=harf;",
+    "Segoe UI Symbol:mode=harf;"
+  })
+  luaotfload.add_fallback("proceedingssansfallback", {
+    "FandolHei:mode=harf;",
+    "Segoe UI Symbol:mode=harf;"
+  })
+}
+\setmainfont{Libertinus Serif}[RawFeature={fallback=proceedingsseriffallback}]
+\setsansfont{Libertinus Sans}[RawFeature={fallback=proceedingssansfallback}]
+\setmonofont{DejaVu Sans Mono}
+\newfontfamily\cyrillicfonttt{DejaVu Sans Mono}[Script=Cyrillic]
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{xurl}
+\usepackage{hyperref}
+\usepackage{tabularx}
+\usepackage{needspace}
+\usepackage{ragged2e}
+\usepackage{enumitem}
+
+\definecolor{ProceedingsRed}{HTML}{A51F16}
+\definecolor{ProceedingsDark}{HTML}{3E3E3E}
+\definecolor{ProceedingsBand}{HTML}{F1B18D}
+\definecolor{ProceedingsLight}{HTML}{FFF4E5}
+\hypersetup{hidelinks,unicode=true}
+\setlength{\parindent}{1.25em}
+\setlength{\parskip}{0pt}
+\setlength{\emergencystretch}{2em}
+\tolerance=1500
+\clubpenalty=10000
+\widowpenalty=10000
+\displaywidowpenalty=10000
+
+\fancypagestyle{submission}{
+  \fancyhf{}
+  \fancyhead[C]{
+    \begin{tikzpicture}[remember picture,overlay]
+      \node[anchor=north west,inner sep=0] at (current page.north west)
+        {\includegraphics[width=\paperwidth,height=32mm]{\detokenize{ {{- background_path -}} }}};
+      \node[anchor=north,text width=.80\paperwidth,align=center,font=\sffamily,
+            fill=white,fill opacity=.84,text opacity=1,rounded corners=1pt,
+            inner xsep=3mm,inner ysep=2.2mm]
+        at ([yshift=-3.5mm]current page.north)
+        {\fontsize{10.2}{11.7}\selectfont\bfseries
+         {{ conference.edition|upper|tex }} ВСЕРОССИЙСКАЯ КОНФЕРЕНЦИЯ\\[-.5pt]
+         \fontsize{9.3}{10.8}\selectfont МОЛОДЫХ УЧЕНЫХ С МЕЖДУНАРОДНЫМ УЧАСТИЕМ\\[1.2pt]
+         \fontsize{10.4}{12}\selectfont\textcolor{ProceedingsRed}{«{{ conference.title|upper|tex_title }}»}\\[1.2pt]
+         \fontsize{8.8}{10.2}\selectfont\mdseries
+         {{ conference.dates|tex }}\enspace{}\textbar\enspace{}{{ conference.organization|tex }}\enspace{}\textbar\enspace{}{{ conference.city|tex }} };
+    \end{tikzpicture}%
+  }
+  \fancyfoot[C]{\sffamily\small\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+  \renewcommand{\footrulewidth}{0pt}
+}
+\fancypagestyle{plain}{
+  \fancyhf{}
+  \fancyfoot[C]{\sffamily\small\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+}
+
+\begin{document}
+\setcounter{page}{1}
+{% include "cover.tex.j2" %}
+{% include "imprint.tex.j2" %}
+{% include "contents.tex.j2" %}
+
+{% if plenary %}
+{% set section = plenary %}
+{% include "section-divider.tex.j2" %}
+{% for group in plenary.groups %}
+{% for submission in group.submissions %}
+{% set submission_group_heading = group if loop.first else none %}
+{% include "submission.tex.j2" %}
+{% endfor %}
+{% endfor %}
+{% endif %}
+
+{% for section in sections %}
+{% include "section-divider.tex.j2" %}
+{% for submission in section.submissions %}
+{% set submission_group_heading = none %}
+{% include "submission.tex.j2" %}
+{% endfor %}
+{% endfor %}
+
+\end{document}

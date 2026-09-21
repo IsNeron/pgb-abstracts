@@ -1,0 +1,51 @@
+{% macro submission_entries(items) -%}
+{% for submission in items %}
+\needspace{15mm}
+\noindent{\sffamily\bfseries
+  \hyperref[ {{- submission.label -}} ]{ {{- submission.title|tex -}} }%
+  \nobreak\hspace{.5em}%
+  \leaders\hbox{\raisebox{.35ex}{\scriptsize.}\kern.25em}\hfill%
+  \nobreak\hspace{.5em}\pageref{ {{- submission.label -}} }\par}
+\vspace{.6mm}
+{\small\itshape {{ submission.authors_text|tex }}\par}
+\vspace{2mm}
+{% endfor %}
+{%- endmacro %}
+
+\clearpage
+\thispagestyle{plain}
+\phantomsection\label{contents:start}
+\vspace*{-23mm}
+{\sffamily\Large\bfseries Оглавление\par}
+\vspace{7mm}
+
+{% if plenary %}
+\needspace{35mm}
+\noindent\colorbox{ProceedingsBand}{
+  \parbox{\dimexpr\linewidth-2\fboxsep-3pt\relax}{
+    \centering\sffamily\bfseries {{ plenary.title|tex }}%
+  }%
+}\par\vspace{2.5mm}
+{% for group in plenary.groups %}
+\needspace{24mm}
+\noindent\parbox{\linewidth}{\raggedright\sffamily\small\bfseries\color{ProceedingsRed}
+{{ group.toc_heading|tex }}\par}\par
+\vspace{1.5mm}
+{{ submission_entries(group.submissions) }}
+{% endfor %}
+\vspace{3mm}
+{% endif %}
+
+{% for section in sections %}
+\needspace{35mm}
+\noindent\colorbox{ProceedingsBand}{
+  \parbox{\dimexpr\linewidth-2\fboxsep-3pt\relax}{
+    \centering\sffamily\bfseries {{ section.toc_heading|tex }}%
+    {% if section.subtitle %}\\[-.3mm]
+    {\small\itshape\mdseries {{ section.subtitle|tex }}}{% endif %}
+  }%
+}\par\vspace{2mm}
+{{ submission_entries(section.submissions) }}
+\vspace{3mm}
+{% endfor %}
+\phantomsection\label{contents:end}

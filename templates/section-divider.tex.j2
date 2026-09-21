@@ -1,0 +1,26 @@
+\clearpage
+\thispagestyle{plain}
+\phantomsection\label{ {{- section.label -}} }
+\begin{tikzpicture}[remember picture,overlay]
+  \node[anchor=north west,inner sep=0] at (current page.north west)
+    {\includegraphics[width=\paperwidth,height=54mm]{\detokenize{ {{- background_path -}} }}};
+\end{tikzpicture}
+\vspace*{34mm}
+\begin{flushleft}
+  {% if section.kicker %}
+  {\sffamily\fontsize{15}{18}\selectfont\bfseries\color{ProceedingsRed}
+   {{ section.kicker|tex }}\par}
+  \vspace{3mm}
+  {% endif %}
+  {\sffamily\fontsize{25}{30}\selectfont\color{ProceedingsDark}
+   {{ section.title|tex }}\par}
+  {% if section.subtitle %}
+  \vspace{3mm}
+  {\sffamily\fontsize{14}{18}\selectfont\itshape\color{ProceedingsDark!80}
+   {{ section.subtitle|tex }}\par}
+  {% endif %}
+  \vspace{4mm}
+  {\color{ProceedingsRed}\rule{\linewidth}{1pt}\par}
+\end{flushleft}
+\vfill
+\clearpage

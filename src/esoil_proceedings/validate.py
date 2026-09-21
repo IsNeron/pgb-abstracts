@@ -23,6 +23,8 @@ def _validate(submission: Submission, title_counts: Counter[str]) -> ValidationR
 
     if not submission.title:
         errors.append("missing title")
+    elif _is_all_caps(submission.title):
+        warnings.append("title is all caps")
     if not submission.abstract:
         errors.append("missing abstract")
     speaker_is_required = submission.section.name.strip().casefold() not in SPEAKER_OPTIONAL_TRACKS
@@ -66,3 +68,8 @@ def _validate(submission: Submission, title_counts: Counter[str]) -> ValidationR
         errors=tuple(errors),
         status=status,
     )
+
+
+def _is_all_caps(value: str) -> bool:
+    letters = [character for character in value if character.isalpha()]
+    return bool(letters) and all(not character.islower() for character in letters)

@@ -1,0 +1,35 @@
+\begin{titlepage}
+\thispagestyle{empty}
+\begin{tikzpicture}[remember picture,overlay]
+  \node[anchor=north west,inner sep=0] at (current page.north west)
+    {\includegraphics[width=\paperwidth,height=90mm]{\detokenize{ {{- background_path -}} }}};
+  \node[anchor=north west,inner sep=0] at ([xshift=17mm,yshift=-14mm]current page.north west)
+    {\includegraphics[width=46mm]{\detokenize{ {{- logo_path -}} }}};
+  \node[anchor=north west,fill=white,fill opacity=.82,text opacity=1,rounded corners=2pt,
+        inner sep=5mm,text width=120mm,font=\sffamily]
+    at ([xshift=69mm,yshift=-17mm]current page.north west)
+    {\fontsize{14.5}{17.5}\selectfont\bfseries {{ conference.full_title|tex }}\\[3mm]
+     \fontsize{18}{21.5}\selectfont\bfseries\hyphenpenalty=10000\exhyphenpenalty=10000
+     «{{ conference.title|tex_title }}»\\[4mm]
+     \fontsize{10.5}{13}\selectfont\mdseries
+     {{ conference.organization|tex }}, {{ conference.city|tex }}};
+\end{tikzpicture}
+
+\vspace*{99mm}
+\begin{center}
+  {\sffamily\fontsize{21}{25}\selectfont\bfseries\color{ProceedingsRed}
+   «{{ conference.title|upper|tex_title }}»\par}
+  \vspace{4mm}
+  {\color{ProceedingsDark}\rule{.92\textwidth}{.7pt}\par}
+  \vspace{12mm}
+  {\sffamily\fontsize{17}{21}\selectfont\bfseries\color{ProceedingsDark}
+   СБОРНИК ТЕЗИСОВ ДОКЛАДОВ\par}
+\end{center}
+
+\vfill
+\begin{center}
+  {\sffamily\large {{ conference.dates|tex }}\par}
+  \vspace{1mm}
+  {\sffamily\large {{ conference.city|tex }}\par}
+\end{center}
+\end{titlepage}

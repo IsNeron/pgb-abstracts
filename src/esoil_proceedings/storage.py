@@ -167,6 +167,10 @@ def _humanize_issue(issue: str) -> str:
         "missing track": "не указана секция",
         "missing keywords": "не указаны ключевые слова",
         "duplicate title": "название заявки повторяется",
+        "title is all caps": (
+            "название целиком набрано прописными буквами; исправьте регистр в "
+            "conf.esoil.ru и заново выполните `fetch`, `normalize`, `validate`"
+        ),
     }
     if issue in translations:
         return translations[issue]

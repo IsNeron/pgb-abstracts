@@ -1,3 +1,102 @@
+conference:
+  year: 2026
+  edition: X
+  title: "Почвоведение: Горизонты будущего. 2026"
+  full_title: >-
+    X Всероссийская конференция молодых ученых
+    с международным участием
+  organization: >-
+    ФИЦ «Почвенный институт им. В.В. Докучаева»
+  city: Москва
+  dates: "14–18 сентября 2026 г."
+
+publication:
+  udc: "631.4"
+  bbk: "40.3"
+  editors: [И.О. ФамилияОдин, И.О. ФамилияДва, И.О. ФамилияТри]
+  compilers: [И.О. Фамилия]
+  publisher: >-
+    ФИЦ «Почвенный институт им. В.В. Докучаева»
+  bibliographic_description: >-
+    «Почвоведение: Горизонты будущего. 2026» : сборник тезисов докладов
+    X Всероссийской конференции молодых ученых с международным участием
+    (Москва, 14–18 сентября 2026 г.).
+  description: >-
+    Сборник включает тезисы докладов X Всероссийской конференции молодых ученых
+    с международным участием «Почвоведение: Горизонты будущего. 2026».
+    В сборнике представлены актуальные исследования в области почвоведения,
+    землепользования и наук о Земле.
+  copyright: >-
+    ФИЦ «Почвенный институт им. В.В. Докучаева»
+
+assets:
+  background: "templates/background.png"
+  logo: "templates/logo.png"
+  sponsors:
+    official:
+      - path: "templates/akron.jpg"
+        label: "АКРОН"
+      - path: "templates/ms-analitika.png"
+        label: "МС-аналитика"
+    partner:
+      path: "templates/econiva.jpg"
+      label: "ЭКОНИВА"
+
+program:
+  sections:
+    - key: fertility
+      order: 1
+      title: "Плодородие почв и рациональное землепользование"
+      subtitle: null
+    - key: genesis
+      order: 2
+      title: "Редукционизм и холизм в познании генезиса и функций почв"
+      subtitle: "к 90-летию В.Д. Тонконогова"
+    - key: biota
+      order: 3
+      title: "Биота: роль в почвенных процессах и индикации состояния экосистем"
+      subtitle: null
+    - key: datalogy
+      order: 4
+      title: "Почвенная даталогия: математические методы, ГИС и дистанционное зондирование"
+      subtitle: null
+    - key: organic
+      order: 5
+      title: "Роль органического вещества в обеспечении биосферных функций почвы и устойчивом землепользовании"
+      subtitle: null
+    - key: degradation
+      order: 6
+      title: "Деградация и восстановление почвенного покрова"
+      subtitle: "к 100-летию А.С. Извекова и 90-летию А.Ф. Новиковой"
+    - key: physics
+      order: 7
+      title: "Физика и гидрология почв: от микромасштаба до ландшафта"
+      subtitle: "к 130-летию А.А. Роде"
+    - key: giants
+      order: 8
+      title: "На плечах гигантов"
+      subtitle: "к 180-летию В.В. Докучаева"
+    - key: horizons
+      order: 9
+      title: "Дальние Горизонты"
+      subtitle: null
+    - key: masterclasses
+      order: 10
+      title: "Мастер-классы"
+      subtitle: null
+
+pretalx_section_mapping:
+  27: genesis
+  28: fertility
+  29: degradation
+  30: organic
+  31: physics
+  32: datalogy
+  33: biota
+  38: giants
+  39: horizons
+  46: masterclasses
+
 proceedings:
   include_states:
     - confirmed
@@ -5,3 +104,4 @@ proceedings:
     - Постерный доклад
     - Гласный доклад
     - Пленарный доклад
+    - Мастер-класс

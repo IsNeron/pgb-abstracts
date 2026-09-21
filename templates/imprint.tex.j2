@@ -1,0 +1,62 @@
+\clearpage
+\setcounter{page}{2}
+\thispagestyle{plain}
+\vspace*{-23mm}
+
+\noindent УДК {{ publication.udc|tex }}\\
+ББК {{ publication.bbk|tex }}
+
+{% if publication.editors %}
+\vspace{7mm}
+\begin{center}
+  \textbf{Редакторы:}\\[1mm]
+  {{ publication.editors|join(', ')|tex }}
+\end{center}
+{% endif %}
+{% if publication.compilers %}
+\vspace{5mm}
+\begin{center}
+  \textbf{Составители:}\\[1mm]
+  {{ publication.compilers|join(', ')|tex }}
+\end{center}
+{% endif %}
+
+\vspace{8mm}
+\noindent {{ publication.bibliographic_description|tex }} ---
+{{ conference.city|tex }}: {{ publication.publisher|tex }}, {{ conference.year }}. ---
+\pageref{LastPage}~с.
+
+\vspace{5mm}
+\noindent\justifying {{ publication.description|tex_paragraphs }}
+
+{% if sponsors.present %}
+\vspace{9mm}
+\noindent\begin{minipage}{\linewidth}
+  \centering
+  {% if sponsors.official %}
+  {\sffamily\bfseries Официальные спонсоры конференции\par}
+  \vspace{3mm}
+  {% for sponsor in sponsors.official -%}
+  \begin{minipage}[c][20mm][c]{.46\linewidth}
+    \centering
+    \includegraphics[width=66mm,height=18mm,keepaspectratio]{\detokenize{ {{- sponsor.path -}} }}
+  \end{minipage}{% if not loop.last %}\hfill{% endif %}
+  {%- endfor %}
+  {% endif %}
+  {% if sponsors.partner %}
+  \vspace{5mm}
+  {\sffamily\bfseries Партнер конференции\par}
+  \vspace{2mm}
+  \includegraphics[width=70mm,height=30mm,keepaspectratio]{\detokenize{ {{- sponsors.partner.path -}} }}
+  {% endif %}
+\end{minipage}
+{% endif %}
+
+\vfill
+\noindent\begin{minipage}[b]{.45\textwidth}
+  УДК {{ publication.udc|tex }}\\
+  ББК {{ publication.bbk|tex }}
+\end{minipage}%
+\begin{minipage}[b]{.55\textwidth}
+  \raggedleft © {{ publication.copyright|tex }}, {{ conference.year }}
+\end{minipage}

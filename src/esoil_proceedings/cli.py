@@ -10,6 +10,7 @@ from .config import ConferenceConfig, ConfigError, load_config
 from .models import Submission, ValidationRecord
 from .normalize import normalize_submissions
 from .pretalx import PretalxClient, PretalxError
+from .render import BuildError, build_pdf, render_preview
 from .storage import (
     read_proceedings,
     read_raw,
@@ -38,7 +39,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("config/conference.yaml"),
         help="conference configuration (default: config/conference.yaml)",
     )
-    parser.add_argument("command", choices=("fetch", "normalize", "validate", "all"))
+    parser.add_argument(
+        "command",
+        choices=("fetch", "normalize", "validate", "build", "render-preview", "all"),
+    )
     return parser
 
 
@@ -53,7 +57,67 @@ def main(argv: list[str] | None = None) -> int:
             run_normalize(config, announce=args.command != "all")
         if args.command in {"validate", "all"}:
             run_validate()
-    except (ConfigError, PretalxError, ValueError) as exc:
+        if args.command == "build":
+            result = build_pdf(args.config)
+            print(f"LaTeX: {result.tex_path}")
+            print(f"PDF: {result.pdf_path}")
+            print(f"Build log: {result.log_path}")
+            print(f"Render warnings: {result.warnings_path}")
+            print(f"Total submissions: {result.total_submissions}")
+            print(
+                "Plenary submissions: "
+                f"{len(result.plenary.submissions) if result.plenary else 0}"
+            )
+            print(
+                "Regular submissions: "
+                f"{sum(len(section.submissions) for section in result.sections)}"
+            )
+            plenary_counts = {
+                group.key: len(group.submissions)
+                for group in (result.plenary.groups if result.plenary else ())
+            }
+            for section in result.sections:
+                if section.is_masterclasses:
+                    print(f"Master classes: {len(section.submissions)}")
+                    continue
+                print(f"Section {section.order}:")
+                print(f"  plenary: {plenary_counts.get(section.key, 0)}")
+                print(f"  regular: {len(section.submissions)}")
+            warning_counts: dict[str, int] = {}
+            for warning in result.warnings:
+                warning_counts[warning.warning_type] = (
+                    warning_counts.get(warning.warning_type, 0) + 1
+                )
+            print("Warnings:")
+            print(f"  malformed coauthors: {warning_counts.get('malformed_coauthors', 0)}")
+            print(
+                "  suspicious affiliations: "
+                f"{warning_counts.get('suspicious_affiliation_contains_person_name', 0)}"
+            )
+            print(f"  unusual author names: {warning_counts.get('unusual_author_name', 0)}")
+            print(f"  duplicate authors: {warning_counts.get('duplicate_author', 0)}")
+            print(f"  missing abstracts: {warning_counts.get('missing_abstract', 0)}")
+            print(f"  missing keywords: {warning_counts.get('missing_keywords', 0)}")
+            print(f"  placeholder emails: {warning_counts.get('placeholder_email', 0)}")
+            print(f"Duplicate authors removed for display: {result.duplicate_authors_removed}")
+            suspicious_codes = sorted(
+                {
+                    warning.submission_code
+                    for warning in result.warnings
+                    if warning.warning_type
+                    == "suspicious_affiliation_contains_person_name"
+                }
+            )
+            print(f"PDF pages: {result.page_count}")
+            print(
+                "Suspicious submission codes: "
+                + (", ".join(suspicious_codes) if suspicious_codes else "none")
+            )
+        if args.command == "render-preview":
+            paths = render_preview(args.config)
+            print(f"Preview pages: {len(paths)}")
+            print(f"Preview directory: {paths[0].parent if paths else Path('build/preview')}")
+    except (BuildError, ConfigError, PretalxError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     return 0
