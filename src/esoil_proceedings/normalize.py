@@ -84,8 +84,7 @@ def normalize_submission(
     else:
         coauthors, parsing_warnings = parse_coauthors(raw_coauthors)
         authors.extend(coauthors)
-    authors, duplicate_warnings = _deduplicate_authors(authors)
-    parsing_warnings.extend(duplicate_warnings)
+    authors = _deduplicate_authors(authors)
     abstract = _localized(raw.get("abstract"))
     return Submission(
         code=code,
@@ -289,18 +288,16 @@ def _affiliation_contains_person_name(value: str) -> bool:
     return False
 
 
-def _deduplicate_authors(authors: list[Author]) -> tuple[list[Author], list[str]]:
+def _deduplicate_authors(authors: list[Author]) -> list[Author]:
     unique: list[Author] = []
-    warnings: list[str] = []
     seen: set[str] = set()
     for author in authors:
         key = _normalized_author_key(author.name)
         if key in seen:
-            warnings.append(f"duplicate author record removed: {author.name}")
             continue
         seen.add(key)
         unique.append(author)
-    return unique, warnings
+    return unique
 
 
 def _normalized_author_key(value: str) -> str:

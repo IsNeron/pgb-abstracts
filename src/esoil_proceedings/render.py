@@ -374,10 +374,6 @@ def _display_submission(
     submission: Submission,
 ) -> tuple[DisplaySubmission, list[RenderWarning], int]:
     warnings = _author_warnings(submission)
-    normalized_duplicates = sum(
-        warning.startswith("duplicate author record removed: ")
-        for warning in submission.normalization_warnings
-    )
     unique_authors: list[tuple[Any, str]] = []
     seen_names: set[str] = set()
     duplicate_authors_removed = 0
@@ -386,14 +382,6 @@ def _display_submission(
         key = _normalized_author_key(display_name)
         if key in seen_names:
             duplicate_authors_removed += 1
-            warnings.append(
-                RenderWarning(
-                    submission.code,
-                    submission.title,
-                    "duplicate_author",
-                    author.name,
-                )
-            )
             continue
         seen_names.add(key)
         unique_authors.append((author, display_name))
@@ -446,7 +434,7 @@ def _display_submission(
             submission_type=submission.submission_type.name,
         ),
         warnings,
-        duplicate_authors_removed + normalized_duplicates,
+        duplicate_authors_removed,
     )
 
 
@@ -454,33 +442,25 @@ def _author_warnings(submission: Submission) -> list[RenderWarning]:
     warnings: list[RenderWarning] = []
     for warning in submission.normalization_warnings:
         if warning.startswith("duplicate author record removed: "):
+            continue
+        warnings.append(
+            RenderWarning(
+                submission.code,
+                submission.title,
+                "malformed_coauthors",
+                warning,
+            )
+        )
+        marker = "affiliation may contain additional person names: "
+        if marker in warning:
             warnings.append(
                 RenderWarning(
                     submission.code,
                     submission.title,
-                    "duplicate_author",
-                    warning.removeprefix("duplicate author record removed: "),
+                    "suspicious_affiliation_contains_person_name",
+                    warning.split(marker, 1)[1],
                 )
             )
-        else:
-            warnings.append(
-                RenderWarning(
-                    submission.code,
-                    submission.title,
-                    "malformed_coauthors",
-                    warning,
-                )
-            )
-            marker = "affiliation may contain additional person names: "
-            if marker in warning:
-                warnings.append(
-                    RenderWarning(
-                        submission.code,
-                        submission.title,
-                        "suspicious_affiliation_contains_person_name",
-                        warning.split(marker, 1)[1],
-                    )
-                )
     speakers = [author.name for author in submission.authors if author.role == "speaker"]
     if len(speakers) > 1:
         warnings.append(

@@ -18,7 +18,11 @@ def validate_submissions(submissions: Iterable[Submission]) -> list[ValidationRe
 
 def _validate(submission: Submission, title_counts: Counter[str]) -> ValidationRecord:
     errors: list[str] = []
-    warnings = list(submission.normalization_warnings)
+    warnings = [
+        warning
+        for warning in submission.normalization_warnings
+        if not warning.startswith("duplicate author record removed: ")
+    ]
     speakers = [author for author in submission.authors if author.role == "speaker" and author.name]
 
     if not submission.title:

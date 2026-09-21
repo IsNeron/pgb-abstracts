@@ -62,6 +62,14 @@ uv run esoil-proceedings build
 uv run esoil-proceedings all
 ```
 
+`build` и `render-preview` перед запуском обновляют отчёт валидации и
+останавливаются, если в нём есть хотя бы одна ошибка или предупреждение. Для
+осознанной сборки с незакрытыми замечаниями используйте `--force`:
+
+```bash
+uv run esoil-proceedings build --force
+```
+
 Можно указать другой конфиг перед именем команды:
 
 ```bash

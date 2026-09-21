@@ -43,6 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
         "command",
         choices=("fetch", "normalize", "validate", "build", "render-preview", "all"),
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="build even when validation contains errors or warnings",
+    )
     return parser
 
 
@@ -58,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in {"validate", "all"}:
             run_validate()
         if args.command == "build":
+            _check_build_validation(force=args.force)
             result = build_pdf(args.config)
             print(f"LaTeX: {result.tex_path}")
             print(f"PDF: {result.pdf_path}")
@@ -114,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
                 + (", ".join(suspicious_codes) if suspicious_codes else "none")
             )
         if args.command == "render-preview":
+            _check_build_validation(force=args.force)
             paths = render_preview(args.config)
             print(f"Preview pages: {len(paths)}")
             print(f"Preview directory: {paths[0].parent if paths else Path('build/preview')}")
@@ -163,7 +170,7 @@ def run_normalize(config: ConferenceConfig, *, announce: bool = True) -> list[Su
     return submissions
 
 
-def run_validate() -> list[ValidationRecord]:
+def run_validate(*, announce: bool = True) -> list[ValidationRecord]:
     submissions = read_proceedings(PROCEEDINGS_PATH)
     records = validate_submissions(submissions)
     write_validation(VALIDATION_PATH, records)
@@ -175,12 +182,29 @@ def run_validate() -> list[ValidationRecord]:
     valid = sum(record.status == "valid" for record in records)
     warnings = sum(record.status == "warning" for record in records)
     errors = sum(record.status == "error" for record in records)
-    print(f"Submissions fetched: {fetched}")
-    print(f"Included: {len(submissions)}")
-    print(f"Valid: {valid}")
-    print(f"Warnings: {warnings}")
-    print(f"Errors: {errors}")
+    if announce:
+        print(f"Submissions fetched: {fetched}")
+        print(f"Included: {len(submissions)}")
+        print(f"Valid: {valid}")
+        print(f"Warnings: {warnings}")
+        print(f"Errors: {errors}")
     return records
+
+
+def _check_build_validation(*, force: bool) -> None:
+    records = run_validate(announce=False)
+    warnings = sum(bool(record.warnings) for record in records)
+    errors = sum(bool(record.errors) for record in records)
+    if not warnings and not errors:
+        return
+    summary = f"validation found {errors} error(s) and {warnings} warning(s)"
+    if force:
+        print(f"Warning: {summary}; continuing because --force was specified.")
+        return
+    raise BuildError(
+        f"Build blocked: {summary}. See build/validation.md, fix the issues, "
+        "or rerun with --force."
+    )
 
 
 if __name__ == "__main__":
