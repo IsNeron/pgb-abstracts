@@ -3,13 +3,14 @@ from __future__ import annotations
 import csv
 import json
 import re
-from dataclasses import fields
+from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from .models import Author, Section, Source, Submission, SubmissionType, ValidationRecord
+from .models import Author, QAIssue, Section, Source, Submission, SubmissionType, ValidationRecord
+from .richtext import validate_richtext
 
 
 class ProceedingsDumper(yaml.SafeDumper):
@@ -50,7 +51,7 @@ def write_proceedings(
     submissions: list[Submission],
 ) -> None:
     document = {
-        "schema_version": 1,
+        "schema_version": 2,
         "event": event,
         "include_states": list(include_states),
         "include_submission_types": list(include_submission_types),
@@ -76,12 +77,14 @@ def read_proceedings(path: Path) -> list[Submission]:
         raise ValueError(f"Cannot read proceedings from {path}: {exc}") from exc
     if not isinstance(document, dict) or not isinstance(document.get("submissions"), list):
         raise ValueError(f"Proceedings in {path} must contain a submissions list")
+    if document.get("schema_version") != 2:
+        raise ValueError("Proceedings schema 2 required; rerun normalize to migrate raw data")
     return [_submission_from_dict(item) for item in document["submissions"]]
 
 
 def write_validation(path: Path, records: list[ValidationRecord]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    column_names = [field.name for field in fields(ValidationRecord)]
+    column_names = [field.name for field in fields(ValidationRecord) if field.name != "issues"]
     with path.open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=column_names)
         writer.writeheader()
@@ -148,18 +151,34 @@ def write_validation_report(path: Path, records: list[ValidationRecord]) -> None
                     "",
                 ]
             )
+            lines.extend(f"- **Ошибка:** {_humanize_issue(error)}" for error in record.errors)
             lines.extend(
-                f"- **Ошибка:** {_humanize_issue(error)}" for error in record.errors
-            )
-            lines.extend(
-                f"- **Предупреждение:** {_humanize_issue(warning)}"
-                for warning in record.warnings
+                f"- **Предупреждение:** {_humanize_issue(warning)}" for warning in record.warnings
             )
             lines.append("")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _humanize_issue(issue: str) -> str:
+    kind, separator, value = issue.partition(": ")
+    typed = {
+        "missing_abstract": "отсутствует текст тезисов",
+        "missing_keywords": "не указаны ключевые слова",
+        "missing_affiliation": "не указана аффилиация",
+        "affiliation_too_short": "подозрительно короткая аффилиация",
+        "noncanonical_person_name": "неоднозначное написание имени",
+        "suspicious_author_affiliation_leak": "в имени автора обнаружены признаки организации",
+        "suspicious_affiliation_contains_person_name": "аффилиация может содержать другого автора",
+        "unparsed_coauthor": "не удалось однозначно разобрать соавтора",
+        "placeholder_email": "email похож на заглушку",
+        "references_present_but_no_intext_citations": (
+            "есть библиография, но не найдены ссылки в тексте"
+        ),
+        "mixed_citation_style": "смешаны числовые ссылки и ссылки автор–год",
+        "suspicious_keyword": "подозрительное ключевое слово",
+    }
+    if kind in typed:
+        return typed[kind] + (f": {value}" if separator else "")
     translations = {
         "missing title": "отсутствует название",
         "missing abstract": "отсутствует текст тезисов",
@@ -196,9 +215,7 @@ def _humanize_issue(issue: str) -> str:
         )
     unparsed = re.fullmatch(r"coauthor item (\d+) cannot be parsed reliably: (.*)", issue)
     if unparsed:
-        return (
-            f"соавтор №{unparsed.group(1)} не разобран однозначно: {unparsed.group(2)}"
-        )
+        return f"соавтор №{unparsed.group(1)} не разобран однозначно: {unparsed.group(2)}"
     empty = re.fullmatch(r"coauthor item (\d+) is empty", issue)
     if empty:
         return f"элемент соавторов №{empty.group(1)} пуст"
@@ -212,13 +229,27 @@ def _submission_from_dict(value: Any) -> Submission:
     submission_type = value.get("submission_type") or {}
     source = value.get("source") or {}
     authors = value.get("authors") or []
+    affiliations = value.get("affiliations") or {}
     if (
         not isinstance(section, dict)
         or not isinstance(submission_type, dict)
         or not isinstance(source, dict)
         or not isinstance(authors, list)
+        or not isinstance(affiliations, dict)
     ):
         raise ValueError("Invalid normalized submission structure")
+    if not all(
+        isinstance(a, dict)
+        and isinstance(a.get("name"), str)
+        and isinstance(a.get("affiliations"), list)
+        and all(type(ref) is int for ref in a["affiliations"])
+        and a.get("role") in {"speaker", "coauthor"}
+        for a in authors
+    ):
+        raise ValueError("Invalid author structure: name, role and affiliation ID list required")
+    if not all(type(ref) is int and isinstance(text, str) for ref, text in affiliations.items()):
+        raise ValueError("Affiliations must map integer IDs to strings")
+    validate_richtext(value.get("abstract"))
     return Submission(
         code=str(value.get("code", "")),
         state=str(value.get("state", "")),
@@ -235,7 +266,7 @@ def _submission_from_dict(value: Any) -> Submission:
         authors=[
             Author(
                 name=str(author.get("name", "")),
-                affiliation=str(author.get("affiliation", "")),
+                affiliations=author["affiliations"],
                 role=author.get("role", "coauthor"),
                 email=str(author["email"]) if author.get("email") else None,
             )
@@ -243,11 +274,50 @@ def _submission_from_dict(value: Any) -> Submission:
             if isinstance(author, dict)
         ],
         keywords=[str(keyword) for keyword in value.get("keywords", [])],
-        abstract=str(value.get("abstract", "")),
+        abstract=value.get("abstract"),
+        affiliations=affiliations,
         source=Source(
             submission_code=str(source.get("submission_code", "")),
             coauthor_answer=source.get("coauthor_answer"),
             coauthor_question_identifier=source.get("coauthor_question_identifier"),
         ),
-        normalization_warnings=[str(item) for item in value.get("normalization_warnings", [])],
+        normalization_issues=[QAIssue(**item) for item in value.get("normalization_issues", [])],
     )
+
+
+def write_qa_reports(directory: Path, records: list[ValidationRecord]) -> None:
+    """One validation result feeds JSON, text, CSV and the editorial report."""
+    directory.mkdir(parents=True, exist_ok=True)
+    counts = {
+        level: sum(i.severity == level for r in records for i in r.issues)
+        for level in ("INFO", "WARNING", "ERROR")
+    }
+    document = {
+        "schema_version": 1,
+        "summary": {"submissions": len(records), **counts},
+        "submissions": {r.submission_code: [asdict(i) for i in r.issues] for r in records},
+    }
+    (directory / "qa-report.json").write_text(
+        json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    lines = [
+        f"Проверено заявок: {len(records)}; INFO: {counts['INFO']}; "
+        f"WARNING: {counts['WARNING']}; ERROR: {counts['ERROR']}",
+        "",
+    ]
+    for record in records:
+        if record.issues:
+            lines.extend([f"{record.submission_code}: {record.title}", f"Секция: {record.track}"])
+            lines.extend(f"  {i.severity} {i.type}: {i.value}" for i in record.issues)
+            lines.append("")
+    (directory / "qa-report.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Compatibility export: diagnostics now belong to validation, not the renderer.
+    with (directory / "render_warnings.csv").open("w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["submission_code", "title", "warning_type", "value", "severity"])
+        for record in records:
+            for issue in record.issues:
+                writer.writerow(
+                    [record.submission_code, record.title, issue.type, issue.value, issue.severity]
+                )

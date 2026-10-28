@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import os
 import re
@@ -15,6 +14,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, TemplateError
 
 from .models import Submission
+from .richtext import validate_richtext
 from .storage import read_proceedings
 
 
@@ -98,8 +98,7 @@ class RenderConfig:
 class DisplayAuthor:
     name: str
     display_name: str
-    affiliation: str
-    affiliation_index: int | None
+    affiliation_indices: tuple[int, ...]
     role: str
     email: str | None
 
@@ -111,10 +110,10 @@ class DisplaySubmission:
     title: str
     authors: tuple[DisplayAuthor, ...]
     authors_text: str
-    affiliations: tuple[str, ...]
+    affiliations: tuple[tuple[int, str], ...]
     email: str | None
     keywords: tuple[str, ...]
-    abstract: str
+    abstract: dict[str, Any] | None
     submission_type: str
 
 
@@ -163,31 +162,19 @@ class DisplayPlenary:
 
 
 @dataclass(frozen=True, slots=True)
-class RenderWarning:
-    submission_code: str
-    title: str
-    warning_type: str
-    value: str
-
-
-@dataclass(frozen=True, slots=True)
 class DisplayProceedings:
     plenary: DisplayPlenary | None
     sections: tuple[DisplaySection, ...]
-    warnings: tuple[RenderWarning, ...]
-    duplicate_authors_removed: int
+
 
 @dataclass(frozen=True, slots=True)
 class BuildResult:
     tex_path: Path
     pdf_path: Path
     log_path: Path
-    warnings_path: Path
     page_labels: dict[str, int]
     plenary: DisplayPlenary | None
     sections: tuple[DisplaySection, ...]
-    warnings: tuple[RenderWarning, ...]
-    duplicate_authors_removed: int
     total_submissions: int
     page_count: int
 
@@ -207,24 +194,6 @@ LATEX_REPLACEMENTS = {
 URL_PATTERN = re.compile(r"https?://[^\s]+")
 URL_TRAILING_PUNCTUATION = ".,;:!?"
 PLENARY_TYPE = "Пленарный доклад"
-PERSON_IN_AFFILIATION_PATTERN = re.compile(
-    r"\b[А-ЯЁ][а-яё-]+\s+[А-ЯЁ]\.?\s*[А-ЯЁ]\.(?:\d+)?"
-)
-MISSING_VALUES = {"", "-", "–", "—"}
-DEGREE_OR_TITLE_PATTERN = re.compile(
-    r"(?:^|\s)(?:доц\.|проф\.|акад\.|к\.[а-яё]\.?н\.|д\.[а-яё]\.?н\.)",
-    re.IGNORECASE,
-)
-AFFILIATION_IN_AUTHOR_PATTERN = re.compile(
-    r"(?:институт|университет|фгбну|фиц|\bран\b|лаборатор|научн\w* центр)",
-    re.IGNORECASE,
-)
-PLACEHOLDER_EMAILS = {"address@address.ru", "test@test.ru", "example@example.com"}
-SHORT_NAME_PATTERN = re.compile(
-    r"^(?P<surname>[^\W\d_]+(?:-[^\W\d_]+)*)\s+"
-    r"(?P<first>[^\W\d_])\.\s*(?P<patronymic>[^\W\d_])\.$",
-    re.UNICODE,
-)
 
 
 def latex_escape(value: object) -> str:
@@ -257,39 +226,36 @@ def _escape_characters(value: str) -> str:
     return "".join(LATEX_REPLACEMENTS.get(character, character) for character in value)
 
 
+def latex_richtext(value: dict[str, Any] | None) -> str:
+    validate_richtext(value)
+    if value is None:
+        return ""
+    commands = {
+        "italic": r"\textit",
+        "bold": r"\textbf",
+        "superscript": r"\textsuperscript",
+        "subscript": r"\textsubscript",
+        "code": r"\texttt",
+    }
+
+    def inline(node: dict[str, Any]) -> str:
+        kind = node["type"]
+        if kind == "text":
+            return latex_escape(node["text"])
+        if kind == "linebreak":
+            return r"\newline{}"
+        return commands[kind] + "{" + "".join(inline(x) for x in node["children"]) + "}"
+
+    return "\n\n\\par\n\n".join(
+        "".join(inline(x) for x in block["children"]) for block in value["blocks"]
+    )
+
+
 def latex_paragraphs(value: object) -> str:
-    text = str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
-    paragraphs = [paragraph.strip() for paragraph in text.split("\n") if paragraph.strip()]
-    return "\n\n\\par\n\n".join(latex_escape(paragraph) for paragraph in paragraphs)
-
-
-def _display_name(name: str) -> tuple[str, bool]:
-    original = _normalize_whitespace(name)
-    short = SHORT_NAME_PATTERN.fullmatch(original)
-    if short and short.group("first").isupper() and short.group("patronymic").isupper():
-        return original, False
-    parts = original.split()
-    if len(parts) == 3 and all(_is_name_word(part) for part in parts):
-        surname, first_name, patronymic = parts
-        return f"{surname} {first_name[0]}.{patronymic[0]}.", False
-    return original, True
-
-
-def abbreviate_name(name: str) -> str:
-    return _display_name(name)[0]
-
-
-def _is_name_word(value: str) -> bool:
-    parts = value.split("-")
-    return all(part.isalpha() and len(part) > 1 and part[0].isupper() for part in parts)
-
-
-def _normalize_whitespace(value: str) -> str:
-    return " ".join(value.split())
-
-
-def _normalized_author_key(value: str) -> str:
-    return _normalize_whitespace(value).casefold()
+    """Plain publication metadata; abstracts always use the semantic tree."""
+    return "\n\n\\par\n\n".join(
+        latex_escape(part.strip()) for part in str(value).split("\n\n") if part.strip()
+    )
 
 
 def build_display_model(
@@ -307,7 +273,9 @@ def build_display_model(
             f"{submission.code}: {submission.section.name!r} (id={submission.section.id!r})"
             for submission in unknown
         )
-        raise BuildError(f"Unmapped Pretalx sections; add them to pretalx_section_mapping: {details}")
+        raise BuildError(
+            f"Unmapped Pretalx sections; add them to pretalx_section_mapping: {details}"
+        )
 
     plenary_grouped: dict[str, list[DisplaySubmission]] = {
         section.key: [] for section in program_sections
@@ -315,12 +283,8 @@ def build_display_model(
     regular_grouped: dict[str, list[DisplaySubmission]] = {
         section.key: [] for section in program_sections
     }
-    warnings: list[RenderWarning] = []
-    duplicate_authors_removed = 0
     for submission in submissions:
-        displayed, submission_warnings, removed = _display_submission(submission)
-        warnings.extend(submission_warnings)
-        duplicate_authors_removed += removed
+        displayed = _display_submission(submission)
         section_key = section_mapping[str(submission.section.id)]
         if submission.submission_type.name == PLENARY_TYPE:
             plenary_grouped[section_key].append(displayed)
@@ -347,8 +311,6 @@ def build_display_model(
     return DisplayProceedings(
         plenary=plenary,
         sections=sections,
-        warnings=_unique_warnings(warnings),
-        duplicate_authors_removed=duplicate_authors_removed,
     )
 
 
@@ -370,215 +332,30 @@ def _display_section(
     )
 
 
-def _display_submission(
-    submission: Submission,
-) -> tuple[DisplaySubmission, list[RenderWarning], int]:
-    warnings = _author_warnings(submission)
-    unique_authors: list[tuple[Any, str]] = []
-    seen_names: set[str] = set()
-    duplicate_authors_removed = 0
-    for author in submission.authors:
-        display_name, _ = _display_name(author.name)
-        key = _normalized_author_key(display_name)
-        if key in seen_names:
-            duplicate_authors_removed += 1
-            continue
-        seen_names.add(key)
-        unique_authors.append((author, display_name))
-
-    affiliations: list[str] = []
-    affiliation_numbers: dict[str, int] = {}
-    for author, _ in unique_authors:
-        affiliation = _display_value(author.affiliation)
-        if affiliation and affiliation not in affiliation_numbers:
-            affiliations.append(affiliation)
-            affiliation_numbers[affiliation] = len(affiliations)
-    show_marks = len(affiliations) > 1
+def _display_submission(submission: Submission) -> DisplaySubmission:
+    show_marks = len(submission.affiliations) > 1
     display_authors = tuple(
         DisplayAuthor(
-            name=_normalize_whitespace(author.name),
-            display_name=display_name,
-            affiliation=_display_value(author.affiliation),
-            affiliation_index=(
-                affiliation_numbers[_display_value(author.affiliation)]
-                if show_marks
-                and _display_value(author.affiliation) in affiliation_numbers
-                else None
-            ),
+            name=author.name,
+            display_name=author.name,
+            affiliation_indices=tuple(author.affiliations) if show_marks else (),
             role=author.role,
-            email=author.email.strip() if author.email and author.email.strip() else None,
+            email=author.email,
         )
-        for author, display_name in unique_authors
+        for author in submission.authors
     )
-    email = next(
-        (
-            author.email.strip()
-            for author in submission.authors
-            if author.role == "speaker" and author.email and author.email.strip()
-        ),
-        None,
+    return DisplaySubmission(
+        code=submission.code,
+        label=f"submission:{_safe_label(submission.code)}",
+        title=submission.title,
+        authors=display_authors,
+        authors_text=", ".join(author.name for author in submission.authors),
+        affiliations=tuple(submission.affiliations.items()),
+        email=next((a.email for a in submission.authors if a.role == "speaker" and a.email), None),
+        keywords=tuple(submission.keywords),
+        abstract=submission.abstract,
+        submission_type=submission.submission_type.name,
     )
-    return (
-        DisplaySubmission(
-            code=submission.code,
-            label=f"submission:{_safe_label(submission.code)}",
-            title=submission.title,
-            authors=display_authors,
-            authors_text=", ".join(author.display_name for author in display_authors),
-            affiliations=tuple(affiliations),
-            email=email,
-            keywords=tuple(
-                keyword for keyword in submission.keywords if not _is_missing(keyword)
-            ),
-            abstract="" if _is_missing(submission.abstract) else submission.abstract,
-            submission_type=submission.submission_type.name,
-        ),
-        warnings,
-        duplicate_authors_removed,
-    )
-
-
-def _author_warnings(submission: Submission) -> list[RenderWarning]:
-    warnings: list[RenderWarning] = []
-    for warning in submission.normalization_warnings:
-        if warning.startswith("duplicate author record removed: "):
-            continue
-        warnings.append(
-            RenderWarning(
-                submission.code,
-                submission.title,
-                "malformed_coauthors",
-                warning,
-            )
-        )
-        marker = "affiliation may contain additional person names: "
-        if marker in warning:
-            warnings.append(
-                RenderWarning(
-                    submission.code,
-                    submission.title,
-                    "suspicious_affiliation_contains_person_name",
-                    warning.split(marker, 1)[1],
-                )
-            )
-    speakers = [author.name for author in submission.authors if author.role == "speaker"]
-    if len(speakers) > 1:
-        warnings.append(
-            RenderWarning(
-                submission.code,
-                submission.title,
-                "multiple_speaker_records",
-                "; ".join(speakers),
-            )
-        )
-    for author in submission.authors:
-        _, unusual = _display_name(author.name)
-        if unusual:
-            warnings.append(
-                RenderWarning(
-                    submission.code,
-                    submission.title,
-                    "unusual_author_name",
-                    author.name,
-                )
-            )
-        if AFFILIATION_IN_AUTHOR_PATTERN.search(author.name):
-            warnings.append(
-                RenderWarning(
-                    submission.code,
-                    submission.title,
-                    "author_contains_affiliation",
-                    author.name,
-                )
-            )
-        if DEGREE_OR_TITLE_PATTERN.search(author.name):
-            warnings.append(
-                RenderWarning(
-                    submission.code,
-                    submission.title,
-                    "author_contains_degree_or_title",
-                    author.name,
-                )
-            )
-        if not _display_value(author.affiliation):
-            warnings.append(
-                RenderWarning(
-                    submission.code,
-                    submission.title,
-                    "missing_affiliation",
-                    author.name,
-                )
-            )
-        elif _affiliation_contains_person_name(author.affiliation):
-            warnings.append(
-                RenderWarning(
-                    submission.code,
-                    submission.title,
-                    "suspicious_affiliation_contains_person_name",
-                    author.affiliation,
-                )
-            )
-        if author.email and author.email.strip().casefold() in PLACEHOLDER_EMAILS:
-            warnings.append(
-                RenderWarning(
-                    submission.code,
-                    submission.title,
-                    "placeholder_email",
-                    author.email.strip(),
-                )
-            )
-    if _is_missing(submission.abstract):
-        warnings.append(
-            RenderWarning(
-                submission.code,
-                submission.title,
-                "missing_abstract",
-                submission.abstract,
-            )
-        )
-    if not submission.keywords or all(_is_missing(item) for item in submission.keywords):
-        warnings.append(
-            RenderWarning(
-                submission.code,
-                submission.title,
-                "missing_keywords",
-                ", ".join(submission.keywords),
-            )
-        )
-    return warnings
-
-
-def _affiliation_contains_person_name(value: str) -> bool:
-    normalized = _normalize_whitespace(value)
-    for match in PERSON_IN_AFFILIATION_PATTERN.finditer(normalized):
-        prefix = normalized[: match.start()]
-        if re.search(r"(?:\bим\.?|\bимени)\s+$", prefix, flags=re.IGNORECASE):
-            continue
-        return True
-    return False
-
-
-def _is_missing(value: str | None) -> bool:
-    return value is None or value.strip().casefold() in MISSING_VALUES
-
-
-def _display_value(value: str | None) -> str:
-    return "" if _is_missing(value) else _normalize_whitespace(value or "")
-
-
-def _unique_warnings(values: list[RenderWarning]) -> tuple[RenderWarning, ...]:
-    unique: list[RenderWarning] = []
-    seen: set[tuple[str, str, str]] = set()
-    for warning in values:
-        key = (warning.submission_code, warning.warning_type, warning.value)
-        if key not in seen:
-            seen.add(key)
-            unique.append(warning)
-    return tuple(unique)
-
-
-def _unique(values: Any) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(values))
 
 
 def _safe_label(value: str) -> str:
@@ -658,6 +435,7 @@ def render_latex(
     )
     environment.filters["tex"] = latex_escape
     environment.filters["tex_title"] = latex_title
+    environment.filters["tex_richtext"] = latex_richtext
     environment.filters["tex_paragraphs"] = latex_paragraphs
     environment.filters["mailto"] = mailto_target
     try:
@@ -694,9 +472,7 @@ def build_pdf(config_path: Path, project_root: Path | None = None) -> BuildResul
         raise
     tex_path = build_dir / "proceedings.tex"
     pdf_path = build_dir / "proceedings.pdf"
-    warnings_path = build_dir / "render_warnings.csv"
     tex_path.write_text(tex, encoding="utf-8")
-    _write_render_warnings(warnings_path, proceedings.warnings)
 
     with tempfile.TemporaryDirectory(prefix="latex-", dir=build_dir) as temporary:
         temporary_path = Path(temporary)
@@ -732,22 +508,20 @@ def build_pdf(config_path: Path, project_root: Path | None = None) -> BuildResul
         log_path.write_text(output, encoding="utf-8")
         generated_pdf = temporary_path / "proceedings.pdf"
         if result.returncode or not generated_pdf.exists():
-            raise BuildError(
-                "LuaLaTeX failed. See build/build.log for details."
-            )
+            raise BuildError("LuaLaTeX failed. See build/build.log for details.")
         shutil.copyfile(generated_pdf, pdf_path)
         page_labels = _read_page_labels(temporary_path / "proceedings.aux")
+        (build_dir / "page-labels.json").write_text(
+            json.dumps(page_labels, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
 
     return BuildResult(
         tex_path=tex_path,
         pdf_path=pdf_path,
         log_path=log_path,
-        warnings_path=warnings_path,
         page_labels=page_labels,
         plenary=proceedings.plenary,
         sections=proceedings.sections,
-        warnings=proceedings.warnings,
-        duplicate_authors_removed=proceedings.duplicate_authors_removed,
         total_submissions=len(submissions),
         page_count=page_labels.get("LastPage", 0),
     )
@@ -758,9 +532,7 @@ def render_preview(config_path: Path, project_root: Path | None = None) -> list[
     renderer = _tool("pdftoppm", preview=True)
     result = build_pdf(config_path, root)
     all_submissions = list(result.plenary.submissions if result.plenary else ())
-    all_submissions.extend(
-        item for section in result.sections for item in section.submissions
-    )
+    all_submissions.extend(item for section in result.sections for item in section.submissions)
     requests: list[tuple[str, int]] = [
         ("cover", 1),
         ("imprint", 2),
@@ -776,9 +548,7 @@ def render_preview(config_path: Path, project_root: Path | None = None) -> list[
         )
         first_plenary = result.plenary.submissions[0]
         if first_plenary.label in result.page_labels:
-            requests.append(
-                ("first-plenary-submission", result.page_labels[first_plenary.label])
-            )
+            requests.append(("first-plenary-submission", result.page_labels[first_plenary.label]))
     if result.sections:
         first_section = result.sections[0]
         requests.append(
@@ -789,9 +559,7 @@ def render_preview(config_path: Path, project_root: Path | None = None) -> list[
         )
         first_regular = first_section.submissions[0]
         if first_regular.label in result.page_labels:
-            requests.append(
-                ("first-normal-submission", result.page_labels[first_regular.label])
-            )
+            requests.append(("first-normal-submission", result.page_labels[first_regular.label]))
 
     samples = (
         (
@@ -823,6 +591,23 @@ def render_preview(config_path: Path, project_root: Path | None = None) -> list[
     if long_title is not None and long_title.label in result.page_labels:
         page = result.page_labels[long_title.label]
         requests.append((f"sample-long-title-{long_title.code}", page))
+
+    # Keep the editorial regression section reproducible, including continuation pages.
+    biota = [
+        s for section in result.sections if section.key == "biota" for s in section.submissions
+    ]
+    if result.plenary:
+        biota.extend(
+            s for group in result.plenary.groups if group.key == "biota" for s in group.submissions
+        )
+    boundaries = sorted(set(result.page_labels.values()))
+    for submission in biota:
+        start = result.page_labels.get(submission.label)
+        if start is None:
+            continue
+        end = next((p for p in boundaries if p > start), result.page_count + 1)
+        for page in range(start, end):
+            requests.append((f"biota-{submission.code}-p{page}", page))
 
     preview_dir = root / "build/preview"
     preview_dir.mkdir(parents=True, exist_ok=True)
@@ -861,25 +646,6 @@ def render_preview(config_path: Path, project_root: Path | None = None) -> list[
         encoding="utf-8",
     )
     return generated
-
-
-def _write_render_warnings(path: Path, warnings: tuple[RenderWarning, ...]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8-sig", newline="") as stream:
-        writer = csv.DictWriter(
-            stream,
-            fieldnames=("submission_code", "title", "warning_type", "value"),
-        )
-        writer.writeheader()
-        for warning in warnings:
-            writer.writerow(
-                {
-                    "submission_code": warning.submission_code,
-                    "title": warning.title,
-                    "warning_type": warning.warning_type,
-                    "value": warning.value,
-                }
-            )
 
 
 def _read_page_labels(path: Path) -> dict[str, int]:

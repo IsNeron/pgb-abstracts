@@ -15,6 +15,7 @@ from .storage import (
     read_proceedings,
     read_raw,
     write_proceedings,
+    write_qa_reports,
     write_raw,
     write_validation,
     write_validation_report,
@@ -46,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="build even when validation contains errors or warnings",
+        help="build even when validation contains structural errors",
     )
     return parser
 
@@ -68,11 +69,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"LaTeX: {result.tex_path}")
             print(f"PDF: {result.pdf_path}")
             print(f"Build log: {result.log_path}")
-            print(f"Render warnings: {result.warnings_path}")
+            print("QA report: build/qa-report.json")
             print(f"Total submissions: {result.total_submissions}")
             print(
-                "Plenary submissions: "
-                f"{len(result.plenary.submissions) if result.plenary else 0}"
+                f"Plenary submissions: {len(result.plenary.submissions) if result.plenary else 0}"
             )
             print(
                 "Regular submissions: "
@@ -89,36 +89,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Section {section.order}:")
                 print(f"  plenary: {plenary_counts.get(section.key, 0)}")
                 print(f"  regular: {len(section.submissions)}")
-            warning_counts: dict[str, int] = {}
-            for warning in result.warnings:
-                warning_counts[warning.warning_type] = (
-                    warning_counts.get(warning.warning_type, 0) + 1
-                )
-            print("Warnings:")
-            print(f"  malformed coauthors: {warning_counts.get('malformed_coauthors', 0)}")
-            print(
-                "  suspicious affiliations: "
-                f"{warning_counts.get('suspicious_affiliation_contains_person_name', 0)}"
-            )
-            print(f"  unusual author names: {warning_counts.get('unusual_author_name', 0)}")
-            print(f"  duplicate authors: {warning_counts.get('duplicate_author', 0)}")
-            print(f"  missing abstracts: {warning_counts.get('missing_abstract', 0)}")
-            print(f"  missing keywords: {warning_counts.get('missing_keywords', 0)}")
-            print(f"  placeholder emails: {warning_counts.get('placeholder_email', 0)}")
-            print(f"Duplicate authors removed for display: {result.duplicate_authors_removed}")
-            suspicious_codes = sorted(
-                {
-                    warning.submission_code
-                    for warning in result.warnings
-                    if warning.warning_type
-                    == "suspicious_affiliation_contains_person_name"
-                }
-            )
             print(f"PDF pages: {result.page_count}")
-            print(
-                "Suspicious submission codes: "
-                + (", ".join(suspicious_codes) if suspicious_codes else "none")
-            )
         if args.command == "render-preview":
             _check_build_validation(force=args.force)
             paths = render_preview(args.config)
@@ -157,7 +128,13 @@ def run_normalize(config: ConferenceConfig, *, announce: bool = True) -> list[Su
         config.include_states,
         config.include_submission_types,
         speaker_emails,
+        config.affiliation_registry,
+        config.keyword_common_words,
     )
+    records = validate_submissions(submissions)
+    write_qa_reports(Path("build"), records)
+    write_validation(VALIDATION_PATH, records)
+    write_validation_report(VALIDATION_REPORT_PATH, records)
     write_proceedings(
         PROCEEDINGS_PATH,
         config.event,
@@ -173,6 +150,7 @@ def run_normalize(config: ConferenceConfig, *, announce: bool = True) -> list[Su
 def run_validate(*, announce: bool = True) -> list[ValidationRecord]:
     submissions = read_proceedings(PROCEEDINGS_PATH)
     records = validate_submissions(submissions)
+    write_qa_reports(Path("build"), records)
     write_validation(VALIDATION_PATH, records)
     write_validation_report(VALIDATION_REPORT_PATH, records)
     try:
@@ -195,14 +173,14 @@ def _check_build_validation(*, force: bool) -> None:
     records = run_validate(announce=False)
     warnings = sum(bool(record.warnings) for record in records)
     errors = sum(bool(record.errors) for record in records)
-    if not warnings and not errors:
+    if not errors:
         return
     summary = f"validation found {errors} error(s) and {warnings} warning(s)"
     if force:
         print(f"Warning: {summary}; continuing because --force was specified.")
         return
     raise BuildError(
-        f"Build blocked: {summary}. See build/validation.md, fix the issues, "
+        f"Build blocked: {summary}. See build/qa-report.json, fix the issues, "
         "or rerun with --force."
     )
 

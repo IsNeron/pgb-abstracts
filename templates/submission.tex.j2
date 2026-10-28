@@ -14,14 +14,14 @@
 
 {\sffamily\fontsize{10.5}{13}\selectfont
 {% for author in submission.authors -%}
-{{ author.display_name|tex }}{% if author.affiliation_index is not none %}\textsuperscript{ {{- author.affiliation_index -}} }{% endif %}{% if not loop.last %}, {% endif %}
+{{ author.display_name|tex }}{% if author.affiliation_indices %}\textsuperscript{ {{- author.affiliation_indices|join(',') -}} }{% endif %}{% if not loop.last %}, {% endif %}
 {%- endfor %}\par}
 
 {% if submission.affiliations %}
 \vspace{2.5mm}
 {\fontsize{9.3}{11.5}\selectfont
-{% for affiliation in submission.affiliations -%}
-{% if submission.affiliations|length > 1 %}\textsuperscript{ {{- loop.index -}} } {% endif %}{{ affiliation|tex }}{% if not loop.last %}; {% endif %}
+{% for affiliation_id, affiliation in submission.affiliations -%}
+{% if submission.affiliations|length > 1 %}\textsuperscript{ {{- affiliation_id -}} } {% endif %}{{ affiliation|tex }}{% if not loop.last %}; {% endif %}
 {%- endfor %}\par}
 {% endif %}
 
@@ -42,7 +42,7 @@
 {\fontsize{10.5}{13.6}\selectfont
 \setlength{\parskip}{.55em}
 \justifying
-{{ submission.abstract|tex_paragraphs }}\par}
+{{ submission.abstract|tex_richtext }}\par}
 {% endif %}
 
 \clearpage

@@ -7,6 +7,9 @@ from typing import Any
 
 import yaml
 
+from .affiliations import AffiliationRegistry
+from .normalize import DEFAULT_COMMON_WORDS
+
 
 class ConfigError(ValueError):
     """The conference configuration is missing or invalid."""
@@ -18,6 +21,8 @@ class ConferenceConfig:
     event: str
     include_states: tuple[str, ...]
     include_submission_types: tuple[str, ...]
+    affiliation_registry: AffiliationRegistry
+    keyword_common_words: tuple[str, ...]
 
 
 def load_config(path: Path) -> ConferenceConfig:
@@ -44,8 +49,7 @@ def load_config(path: Path) -> ConferenceConfig:
     if not isinstance(include_states_value, list) or not include_states_value:
         raise ConfigError("proceedings.include_states must be a non-empty list")
     include_states = tuple(
-        _nonempty_string(value, "proceedings.include_states item")
-        for value in include_states_value
+        _nonempty_string(value, "proceedings.include_states item") for value in include_states_value
     )
     include_types_value = proceedings.get("include_submission_types", [])
     if not isinstance(include_types_value, list):
@@ -54,11 +58,24 @@ def load_config(path: Path) -> ConferenceConfig:
         _nonempty_string(value, "proceedings.include_submission_types item")
         for value in include_types_value
     )
+    normalization = _mapping(document.get("normalization", {}), "normalization")
+    aliases = normalization.get("affiliation_aliases", [])
+    if not isinstance(aliases, list) or not all(isinstance(x, dict) for x in aliases):
+        raise ConfigError("normalization.affiliation_aliases must be a list of mappings")
+    try:
+        registry = AffiliationRegistry(aliases)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+    common = normalization.get("keyword_common_words", list(DEFAULT_COMMON_WORDS))
+    if not isinstance(common, list) or not all(isinstance(x, str) for x in common):
+        raise ConfigError("normalization.keyword_common_words must be a list of strings")
     return ConferenceConfig(
         base_url=base_url.rstrip("/"),
         event=event,
         include_states=include_states,
         include_submission_types=include_submission_types,
+        affiliation_registry=registry,
+        keyword_common_words=tuple(common),
     )
 
 
